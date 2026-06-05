@@ -14,7 +14,7 @@
   "workspaces": [
     "packages/openauth-sdk",
     "packages/openauth-dashboard",
-    "apps/*"
+    "apps"
   ],
   "devDependencies": {
     "@types/node": "^25.9.1"

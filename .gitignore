@@ -2,7 +2,6 @@
 **/node_modules
 
 # testing & local config
-apps/playground/openauth.json
 openauth.json
 
 # next.js build output

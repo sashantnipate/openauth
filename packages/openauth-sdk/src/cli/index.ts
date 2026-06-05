@@ -9,7 +9,7 @@ if (command === 'dev') {
   const projectRoot = process.cwd();
   const configPath = path.join(projectRoot, 'openauth.json');
 
-  // Generate openauth.json template automatically if missing
+  // 1. Generate openauth.json template automatically if missing
   if (!fs.existsSync(configPath)) {
     const defaultConfig = {
       settings: {
@@ -26,21 +26,35 @@ if (command === 'dev') {
     console.log('✨ Created baseline openauth.json configuration matrix.');
   }
 
+  // 2. Safe Dashboard Path Resolution
+  const monorepoRoot = path.resolve(projectRoot, '..'); 
+  const dashboardPath = path.join(monorepoRoot, 'packages', 'openauth-dashboard');
+
+  if (!fs.existsSync(dashboardPath)) {
+    console.error(`❌ Error: Could not locate the dashboard repository directory at: ${dashboardPath}`);
+    process.exit(1);
+  }
+
   console.log('🚀 Launching openAuth Local Dashboard Engine on http://localhost:4000...');
 
+  // 3. The Cross-Platform Fix
+  const isWindows = process.platform === 'win32';
+  
+  // Windows requires 'npm.cmd' WITH 'shell: true' to prevent EINVAL or ENOENT errors
+  const npmCommand = isWindows ? 'npm.cmd' : 'npm';
 
-  const dashboardPath = path.join(__dirname, '../../../../openauth-dashboard');
-
-  const nextProcess = spawn('npm', ['run', 'dev', '--', '-p', '4000'], {
+  const nextProcess = spawn(npmCommand, ['run', 'dev', '--', '-p', '4000'], {
     cwd: dashboardPath,
     stdio: 'inherit',
-    shell: true,
+    shell: true, // Forces Windows to correctly parse the .cmd extension execution context
     env: {
       ...process.env,
-      // Pass down the current working directory path context so the 
-      // Next.js API routes know exactly where to read/write the configuration file
       APP_TARGET_PROJECT_ROOT: projectRoot
     }
+  });
+
+  nextProcess.on('error', (err) => {
+    console.error('❌ Failed to start the dashboard process:', err);
   });
 
   nextProcess.on('close', (code) => {

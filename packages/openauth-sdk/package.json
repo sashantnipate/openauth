@@ -1,0 +1,22 @@
+{
+  "name": "@openauth/nextjs",
+  "version": "1.0.0",
+  "description": "Headless Dev-First Authentication Engine for Next.js",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "openauth": "./dist/cli/index.js"
+  },
+  "scripts": {
+    "build": "tsup src/index.ts src/cli/index.ts --format cjs,esm --dts --clean"
+  },
+  "dependencies": {
+    "jsonwebtoken": "^9.0.2"
+  },
+  "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.6",
+    "tsup": "^8.0.2",
+    "typescript": "^5.0.0"
+  }
+}
