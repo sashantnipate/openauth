@@ -4,7 +4,12 @@ import path from 'path';
 export interface OpenAuthConfig {
   settings: {
     sessionDuration: string;
-    organizations: boolean;
+    organizations: {
+      enabled: boolean;
+      allowUserCreate?: boolean;
+      autoCreateOnSignup?: boolean;
+      defaultMaxMembers?: number;
+    };
     allowUserSignups: boolean;
   };
   providers: {
@@ -13,11 +18,16 @@ export interface OpenAuthConfig {
   };
 }
 
-// Fallback configuration if the developer hasn't generated their openauth.json yet
+// Default fallback configuration if the developer hasn't generated their openauth.json yet
 const DEFAULT_CONFIG: OpenAuthConfig = {
   settings: {
     sessionDuration: "1d",
-    organizations: false,
+    organizations: {
+      enabled: false,
+      allowUserCreate: false,
+      autoCreateOnSignup: false,
+      defaultMaxMembers: 5
+    },
     allowUserSignups: true
   },
   providers: {
@@ -28,11 +38,9 @@ const DEFAULT_CONFIG: OpenAuthConfig = {
 
 /**
  * Dynamically reads and parses the 'openauth.json' configuration matrix
- * directly from the root of the hosting Next.js application.
  */
 export function getLocalConfig(): OpenAuthConfig {
   try {
-    // process.cwd() resolves to the root folder of the Next.js app running our package
     const configPath = path.join(process.cwd(), 'openauth.json');
     
     if (!fs.existsSync(configPath)) {
