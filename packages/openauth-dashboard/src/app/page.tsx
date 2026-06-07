@@ -4,7 +4,9 @@ import { useEffect, useState } from 'react';
 export default function DashboardHome() {
   const [config, setConfig] = useState<any>(null);
   const [saving, setSaving] = useState(false);
+  const [systemMessage, setSystemMessage] = useState<string | null>(null);
 
+  // 1. Fetch current layout configurations on mount
   useEffect(() => {
     fetch('/api/config')
       .then((res) => res.json())
@@ -12,17 +14,32 @@ export default function DashboardHome() {
       .catch((err) => console.error('Failed to read config matrix:', err));
   }, []);
 
-  const updateConfigMatrix = async (nextConfig: any) => {
+  // 2. Centralized updater to save configuration state matrix to the disk
+  const updateConfigMatrix = async (nextConfig: any, optionalAlert?: string) => {
     setConfig(nextConfig);
     setSaving(true);
-    await fetch('/api/config', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(nextConfig),
-    });
-    setSaving(false);
+    setSystemMessage(null);
+    
+    try {
+      const response = await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(nextConfig),
+      });
+
+      if (response.ok && optionalAlert) {
+        setSystemMessage(optionalAlert);
+        // Clear status alert automatically after a brief window
+        setTimeout(() => setSystemMessage(null), 4000);
+      }
+    } catch (err) {
+      console.error('Failed to synchronize config update matrix:', err);
+    } finally {
+      setSaving(false);
+    }
   };
 
+  // 3. Simple toggle handler for top-level scalar configuration parameters
   const handleToggleSetting = (key: string) => {
     const nextConfig = {
       ...config,
@@ -31,11 +48,13 @@ export default function DashboardHome() {
     updateConfigMatrix(nextConfig);
   };
 
-  // Fixed Deep Nested State Toggle Handler
+  // 4. Multi-Tenancy Toggle Handler — Updates structure and flags disk state cleanup notices
   const handleToggleOrgEnabled = () => {
     const currentOrgState = typeof config.settings.organizations === 'object' 
       ? config.settings.organizations 
       : { enabled: false, allowUserCreate: false, autoCreateOnSignup: false, defaultMaxMembers: 5 };
+
+    const targetStateWillBeEnabled = !currentOrgState.enabled;
 
     const nextConfig = {
       ...config,
@@ -43,13 +62,20 @@ export default function DashboardHome() {
         ...config.settings,
         organizations: {
           ...currentOrgState,
-          enabled: !currentOrgState.enabled
+          enabled: targetStateWillBeEnabled
         }
       }
     };
-    updateConfigMatrix(nextConfig);
+
+    // Define visual feedback messages explaining disk operations occurring downstream
+    const alertNotice = targetStateWillBeEnabled
+      ? "📦 Multi-Tenancy Active: Added Organization & Membership schemas to openauth/ folder."
+      : "🧹 Single-Tenant Active: Cleared Organization & Membership files from openauth/ folder.";
+
+    updateConfigMatrix(nextConfig, alertNotice);
   };
 
+  // 5. Handles text configuration updates (like token expirations)
   const handleTextSettingChange = (key: string, value: string) => {
     const nextConfig = {
       ...config,
@@ -58,6 +84,7 @@ export default function DashboardHome() {
     updateConfigMatrix(nextConfig);
   };
 
+  // 6. Handles configuration inputs for external OAuth Providers
   const handleProviderChange = (provider: 'github' | 'google', field: string, value: any) => {
     const nextConfig = {
       ...config,
@@ -74,7 +101,7 @@ export default function DashboardHome() {
 
   if (!config) return <div className="p-8 text-zinc-500 font-mono text-center">Scanning local workspace matrices...</div>;
 
-  // Normalize flag status mapping definitions safely
+  // Compute multi-tenancy status flags safely across various structure versions
   const isOrgEnabled = config.settings.organizations && typeof config.settings.organizations === 'object'
     ? !!config.settings.organizations.enabled
     : !!config.settings.organizations;
@@ -92,6 +119,14 @@ export default function DashboardHome() {
           {saving && <span className="text-xs bg-amber-500/10 text-amber-500 px-2 py-1 rounded animate-pulse">Saving...</span>}
         </div>
       </header>
+
+      {/* SYSTEM OPERATIONS BANNER */}
+      {systemMessage && (
+        <div className="mb-6 p-3 bg-zinc-900 text-white dark:bg-white dark:text-zinc-950 text-xs font-mono rounded-lg border shadow-sm animate-fade-in flex items-center gap-2">
+          <span className="inline-block w-2 h-2 rounded-full bg-emerald-400" />
+          {systemMessage}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
         
@@ -134,7 +169,7 @@ export default function DashboardHome() {
                 type="checkbox" 
                 className="w-4 h-4 accent-black cursor-pointer"
                 checked={isOrgEnabled} 
-                onChange={handleToggleOrgEnabled}
+                onChange={isOrgEnabled ? handleToggleOrgEnabled : handleToggleOrgEnabled} 
               />
             </div>
 
