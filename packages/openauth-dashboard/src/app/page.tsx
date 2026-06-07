@@ -12,7 +12,6 @@ export default function DashboardHome() {
       .catch((err) => console.error('Failed to read config matrix:', err));
   }, []);
 
-  // Universal updater function to handle deeply nested object paths
   const updateConfigMatrix = async (nextConfig: any) => {
     setConfig(nextConfig);
     setSaving(true);
@@ -28,6 +27,25 @@ export default function DashboardHome() {
     const nextConfig = {
       ...config,
       settings: { ...config.settings, [key]: !config.settings[key] },
+    };
+    updateConfigMatrix(nextConfig);
+  };
+
+  // Fixed Deep Nested State Toggle Handler
+  const handleToggleOrgEnabled = () => {
+    const currentOrgState = typeof config.settings.organizations === 'object' 
+      ? config.settings.organizations 
+      : { enabled: false, allowUserCreate: false, autoCreateOnSignup: false, defaultMaxMembers: 5 };
+
+    const nextConfig = {
+      ...config,
+      settings: {
+        ...config.settings,
+        organizations: {
+          ...currentOrgState,
+          enabled: !currentOrgState.enabled
+        }
+      }
     };
     updateConfigMatrix(nextConfig);
   };
@@ -55,6 +73,11 @@ export default function DashboardHome() {
   };
 
   if (!config) return <div className="p-8 text-zinc-500 font-mono text-center">Scanning local workspace matrices...</div>;
+
+  // Normalize flag status mapping definitions safely
+  const isOrgEnabled = config.settings.organizations && typeof config.settings.organizations === 'object'
+    ? !!config.settings.organizations.enabled
+    : !!config.settings.organizations;
 
   return (
     <div className="p-8 max-w-4xl mx-auto font-sans text-zinc-900 dark:text-zinc-100 pb-24">
@@ -97,7 +120,7 @@ export default function DashboardHome() {
               <input 
                 type="checkbox" 
                 className="w-4 h-4 accent-black cursor-pointer"
-                checked={config.settings.allowUserSignups} 
+                checked={!!config.settings.allowUserSignups} 
                 onChange={() => handleToggleSetting('allowUserSignups')}
               />
             </div>
@@ -110,8 +133,8 @@ export default function DashboardHome() {
               <input 
                 type="checkbox" 
                 className="w-4 h-4 accent-black cursor-pointer"
-                checked={config.settings.organizations} 
-                onChange={() => handleToggleSetting('organizations')}
+                checked={isOrgEnabled} 
+                onChange={handleToggleOrgEnabled}
               />
             </div>
 
@@ -123,7 +146,7 @@ export default function DashboardHome() {
               <input 
                 type="text" 
                 className="border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 rounded px-2 py-1 text-sm font-mono w-24 text-center"
-                value={config.settings.sessionDuration} 
+                value={config.settings.sessionDuration || ''} 
                 onChange={(e) => handleTextSettingChange('sessionDuration', e.target.value)}
               />
             </div>
@@ -140,11 +163,11 @@ export default function DashboardHome() {
                 <input 
                   type="checkbox" 
                   className="w-4 h-4 accent-black cursor-pointer"
-                  checked={config.providers.github.enabled}
+                  checked={!!config.providers?.github?.enabled}
                   onChange={(e) => handleProviderChange('github', 'enabled', e.target.checked)}
                 />
               </div>
-              {config.providers.github.enabled && (
+              {config.providers?.github?.enabled && (
                 <div className="grid grid-cols-1 gap-2 pt-2 border-t border-zinc-100 dark:border-zinc-900 font-mono text-xs">
                   <label className="text-zinc-400">Client ID</label>
                   <input 
@@ -173,11 +196,11 @@ export default function DashboardHome() {
                 <input 
                   type="checkbox" 
                   className="w-4 h-4 accent-black cursor-pointer"
-                  checked={config.providers.google.enabled}
+                  checked={!!config.providers?.google?.enabled}
                   onChange={(e) => handleProviderChange('google', 'enabled', e.target.checked)}
                 />
               </div>
-              {config.providers.google.enabled && (
+              {config.providers?.google?.enabled && (
                 <div className="grid grid-cols-1 gap-2 pt-2 border-t border-zinc-100 dark:border-zinc-900 font-mono text-xs">
                   <label className="text-zinc-400">Client ID</label>
                   <input 
