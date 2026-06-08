@@ -6,9 +6,11 @@ import fs from 'fs';
 const command = process.argv[2];
 
 // ============================================================================
-// MODULAR SCHEMA TEMPLATES
+// MODULAR SCHEMA & ROUTE TEMPLATES
 // ============================================================================
 
+// Future Dev Note: We added 'canCreateOrganizations' directly to the user template 
+// to decouple database permissions from local JSON structural configuration blocks.
 const USER_TEMPLATE = `import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IUser extends Document {
@@ -16,6 +18,7 @@ export interface IUser extends Document {
   name: string;
   passwordHash?: string;
   providers: { githubId?: string; googleId?: string };
+  canCreateOrganizations: boolean;
   createdAt: Date;
 }
 
@@ -27,6 +30,7 @@ const UserSchema = new Schema<IUser>({
     githubId: { type: String, required: false, sparse: true },
     googleId: { type: String, required: false, sparse: true }
   },
+  canCreateOrganizations: { type: Boolean, default: true },
   createdAt: { type: Date, default: Date.now },
 });
 
@@ -74,54 +78,86 @@ MembershipSchema.index({ userId: 1 });
 export const MembershipModel = mongoose.models.Membership || mongoose.model<IMembership>('Membership', MembershipSchema);
 `;
 
+// AUTOMATIC ROUTE SCAFFOLDER: Dropping this catch-all script allows the developer
+// to get up and running without manually copying endpoints.
+const API_CATCHALL_TEMPLATE = `import { NextRequest, NextResponse } from 'next/server';
+import { OpenAuthEngine } from '@openauth/nextjs';
+import { UserModel, OrgModel, MembershipModel } from '@/models/openauth';
+
+const engine = new OpenAuthEngine({ UserModel, OrgModel, MembershipModel });
+
+export async function POST(request: NextRequest, context: any) {
+  // Gracefully handles parameters across varying versions of Next.js dynamic routing signatures
+  const params = await context.params;
+  const action = params.openauth?.[0];
+  const body = await request.json();
+
+  try {
+    if (action === 'signup') {
+      const payload = await engine.signup(body);
+      return NextResponse.json(payload);
+    }
+    
+    if (action === 'create-org') {
+      const { userId, orgName } = body;
+      const newOrg = await engine.createOrganization(userId, orgName);
+      return NextResponse.json({ success: true, organization: newOrg });
+    }
+
+    return NextResponse.json({ error: \`Action '\${action}' path not found.\` }, { status: 404 });
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message || 'Engine execution transaction fault.' }, { status: 400 });
+  }
+}
+`;
+
 // ============================================================================
 // REACTIVE DIRECTORY ENGINE COMPILER FUNCTION
 // ============================================================================
 
-/**
- * Re-evaluates the config file layout and automatically updates the folder
- * state on the target machine without requiring a process restart.
- */
-function compileWorkspaceStructure(configPath: string, baseModelsDir: string) {
+function compileWorkspaceStructure(configPath: string, baseModelsDir: string, projectRoot: string) {
   try {
     if (!fs.existsSync(configPath)) return;
     
-    const configContent = fs.readFileSync(configPath, 'utf-8');
-    const currentConfig = JSON.parse(configContent);
-
-    // Parse the current multi-tenancy setting state
-    const areOrgsEnabled = currentConfig?.settings?.organizations && typeof currentConfig.settings.organizations === 'object'
-      ? !!currentConfig.settings.organizations.enabled
-      : !!currentConfig?.settings?.organizations;
-
     const openauthFolder = path.join(baseModelsDir, 'openauth');
 
-    // Enforce folder creation rules
     if (!fs.existsSync(openauthFolder)) {
       fs.mkdirSync(openauthFolder, { recursive: true });
     }
 
-    // Process and populate file modules
+    // BEST PRACTICE REVISION: We always write all database files out to disk permanently.
+    // Toggling multi-tenancy should NOT remove files; otherwise, static imports like
+    // "import { OrgModel } from '@/models/openauth'" will crash the developer's compilers.
     fs.writeFileSync(path.join(openauthFolder, 'User.ts'), USER_TEMPLATE, 'utf-8');
+    fs.writeFileSync(path.join(openauthFolder, 'Organization.ts'), ORG_TEMPLATE, 'utf-8');
+    fs.writeFileSync(path.join(openauthFolder, 'Membership.ts'), MEMBERSHIP_TEMPLATE, 'utf-8');
+
+    // Keep exports constant to maintain robust, break-proof workspace import layouts
+    const indexExportContent = 
+      `export { UserModel } from './User';\n` +
+      `export { OrgModel } from './Organization';\n` +
+      `export { MembershipModel } from './Membership';\n`;
     
-    if (areOrgsEnabled) {
-      fs.writeFileSync(path.join(openauthFolder, 'Organization.ts'), ORG_TEMPLATE, 'utf-8');
-      fs.writeFileSync(path.join(openauthFolder, 'Membership.ts'), MEMBERSHIP_TEMPLATE, 'utf-8');
-      console.log('🔄 [openAuth Engine] Config Change Detected: Multi-Tenant schemas synchronized.');
-    } else {
-      // Automatic removal loop when disabled via Dashboard UI
-      if (fs.existsSync(path.join(openauthFolder, 'Organization.ts'))) fs.unlinkSync(path.join(openauthFolder, 'Organization.ts'));
-      if (fs.existsSync(path.join(openauthFolder, 'Membership.ts'))) fs.unlinkSync(path.join(openauthFolder, 'Membership.ts'));
-      console.log('🔄 [openAuth Engine] Config Change Detected: Single-Tenant active. Cleared multi-tenant outputs.');
+    fs.writeFileSync(path.join(openauthFolder, 'index.ts'), indexExportContent, 'utf-8');
+    console.log('🔄 [openAuth Engine] Database templates synchronized successfully.');
+
+    // ========================================================================
+    // NEXT.JS API ENDPOINT AUTO-GEN STEP
+    // ========================================================================
+    const hasSrcDir = fs.existsSync(path.join(projectRoot, 'src'));
+    const apiRouteFolder = hasSrcDir
+      ? path.join(projectRoot, 'src', 'app', 'api', 'auth', '[...openauth]')
+      : path.join(projectRoot, 'app', 'api', 'auth', '[...openauth]');
+
+    if (!fs.existsSync(apiRouteFolder)) {
+      fs.mkdirSync(apiRouteFolder, { recursive: true });
     }
 
-    // Regenerate the export index file
-    let indexExportContent = `export { UserModel } from './User';\n`;
-    if (areOrgsEnabled) {
-      indexExportContent += `export { OrgModel } from './Organization';\n`;
-      indexExportContent += `export { MembershipModel } from './Membership';\n`;
+    const targetRouteFile = path.join(apiRouteFolder, 'route.ts');
+    if (!fs.existsSync(targetRouteFile)) {
+      fs.writeFileSync(targetRouteFile, API_CATCHALL_TEMPLATE, 'utf-8');
+      console.log('✨ [openAuth Engine] Automatically scaffolded Next.js unified catch-all router endpoint.');
     }
-    fs.writeFileSync(path.join(openauthFolder, 'index.ts'), indexExportContent, 'utf-8');
 
   } catch (error) {
     console.error('⚠️ [openAuth Engine] Failed to compile structural updates reactively:', error);
@@ -136,7 +172,6 @@ if (command === 'dev') {
   const projectRoot = process.cwd();
   const configPath = path.join(projectRoot, 'openauth.json');
   
-  // Initialize baseline file if it does not exist yet
   if (!fs.existsSync(configPath)) {
     const baselineConfig = {
       settings: {
@@ -153,7 +188,6 @@ if (command === 'dev') {
     console.log('✨ Created baseline openauth.json configuration matrix.');
   }
 
-  // Resolve target directory path structure
   const hasSrcDir = fs.existsSync(path.join(projectRoot, 'src'));
   const baseModelsDir = hasSrcDir ? path.join(projectRoot, 'src', 'models') : path.join(projectRoot, 'models');
   
@@ -161,23 +195,21 @@ if (command === 'dev') {
     fs.mkdirSync(baseModelsDir, { recursive: true });
   }
 
-  // Clean old single-file layout if present from historical runs
   const legacySingleFile = path.join(baseModelsDir, 'openauth.ts');
   if (fs.existsSync(legacySingleFile)) {
     fs.unlinkSync(legacySingleFile);
   }
 
-  // 1. Fire baseline generation pass immediately upon startup
-  compileWorkspaceStructure(configPath, baseModelsDir);
+  // 1. Fire initialization routine mapping out structures directly onto the hard drive
+  compileWorkspaceStructure(configPath, baseModelsDir, projectRoot);
 
-  // 2. ACTIVE SYSTEM WATCHER: This fixes your issue. It listens for saves live!
+  // 2. Active hot-reload listener capturing dashboard adjustments live
   let watchDebounceTimeout: NodeJS.Timeout | null = null;
   fs.watch(configPath, (eventType) => {
     if (eventType === 'change') {
-      // Debounce events to prevent overlapping double-write triggers
       if (watchDebounceTimeout) clearTimeout(watchDebounceTimeout);
       watchDebounceTimeout = setTimeout(() => {
-        compileWorkspaceStructure(configPath, baseModelsDir);
+        compileWorkspaceStructure(configPath, baseModelsDir, projectRoot);
       }, 100);
     }
   });
