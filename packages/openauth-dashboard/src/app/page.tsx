@@ -85,20 +85,24 @@ export default function DashboardHome() {
   };
 
   // 6. Handles configuration inputs for external OAuth Providers
+  // 6. Handles configuration inputs for external OAuth Providers
   const handleProviderChange = (provider: 'github' | 'google', field: string, value: any) => {
+    // Safety fallback: ensure providers and the specific provider object exist before spreading
+    const currentProviders = config?.providers || {};
+    const currentProviderData = currentProviders[provider] || { enabled: false, clientId: "", clientSecret: "" };
+
     const nextConfig = {
       ...config,
       providers: {
-        ...config.providers,
+        ...currentProviders,
         [provider]: {
-          ...config.providers[provider],
+          ...currentProviderData,
           [field]: value
         }
       }
     };
     updateConfigMatrix(nextConfig);
   };
-
   if (!config) return <div className="p-8 text-zinc-500 font-mono text-center">Scanning local workspace matrices...</div>;
 
   // Compute multi-tenancy status flags safely across various structure versions
