@@ -2,7 +2,9 @@
 import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs';
-
+import crypto from 'crypto';
+import readline from 'node:readline/promises';
+import { stdin as input, stdout as output } from 'process';
 const command = process.argv[2];
 
 // ============================================================================
@@ -314,45 +316,115 @@ function compileWorkspaceStructure() {
   }
 }
 
+async function setupEnvironmentVariables(projectRoot: string) {
+  const envPath = path.join(projectRoot, '.env');
+  
+  // To optimize developer experience, if .env exists AND has a configured database URI,
+  // we skip prompting so the dev server starts instantly on subsequent runs.
+  if (fs.existsSync(envPath)) {
+    const currentEnv = fs.readFileSync(envPath, 'utf-8');
+    const match = currentEnv.match(/^MONGODB_URI=(.*)$/m);
+    if (match && match[1].trim() !== '') {
+      return; // A valid URL already exists, bypass prompt safely
+    }
+  }
+
+  const rl = readline.createInterface({ input, output });
+  
+  try {
+    console.log('\n🔌 [openAuth Configuration] Setting up database layers...');
+    const rawInput = await rl.question('Enter MongoDB Connection URI (Leave blank to configure later): ');
+    const databaseUrl = rawInput.trim();
+
+    if (!fs.existsSync(envPath)) {
+      // SCENARIO 1: .env DOES NOT EXIST -> Auto-generate it from scratch
+      const randomSecret = crypto.randomBytes(32).toString('hex');
+      const freshEnvContent = 
+        `# openAuth Local Environment Configuration\n` +
+        `MONGODB_URI=${databaseUrl}\n` +
+        `OPENAUTH_SECRET=${randomSecret}\n`;
+        
+      fs.writeFileSync(envPath, freshEnvContent, 'utf-8');
+      console.log(`✅ Auto-generated a fresh .env file in your workspace.`);
+    } else {
+      // SCENARIO 2: .env EXISTS -> Read, modify/insert MONGODB_URI line dynamically
+      let envContent = fs.readFileSync(envPath, 'utf-8');
+      const hasMongoUriKey = /^MONGODB_URI=/m.test(envContent);
+
+      if (hasMongoUriKey) {
+        // Line exists but is empty/malformed -> Replace it using regex mapping strings
+        envContent = envContent.replace(/^MONGODB_URI=.*$/m, `MONGODB_URI=${databaseUrl}`);
+      } else {
+        // Key is completely missing -> Cleanly append to bottom of file space
+        if (envContent.length > 0 && !envContent.endsWith('\n')) {
+          envContent += '\n';
+        }
+        envContent += `MONGODB_URI=${databaseUrl}\n`;
+      }
+
+      fs.writeFileSync(envPath, envContent, 'utf-8');
+      console.log(`✅ Updated existing .env file with target MONGODB_URI configuration value.`);
+    }
+  } catch (err) {
+    console.error('⚠️ Encountered a fault establishing environment config file:', err);
+  } finally {
+    rl.close();
+  }
+}
 // ============================================================================
 // RUNTIME LIFECYCLE BRANCHES
 // ============================================================================
 
-if (command === 'init') {
-  compileWorkspaceStructure();
-} else if (command === 'dev') {
-  const projectRoot = process.cwd();
+async function runCliPipeline() {
+  const projectRoot = 
+    process.env.APP_TARGET_PROJECT_ROOT || 
+    process.env.INIT_CWD || 
+    process.cwd();
+
+  // Define configPath right here so the file watcher can access it cleanly
   const configPath = path.join(projectRoot, 'openauth.json');
 
-  compileWorkspaceStructure();
+  if (command === 'init') {
+    await setupEnvironmentVariables(projectRoot);
+    compileWorkspaceStructure();
+    
+  } else if (command === 'dev') {
+    await setupEnvironmentVariables(projectRoot);
+    compileWorkspaceStructure();
 
-  let watchDebounceTimeout: NodeJS.Timeout | null = null;
-  fs.watch(configPath, (eventType) => {
-    if (eventType === 'change') {
-      if (watchDebounceTimeout) clearTimeout(watchDebounceTimeout);
-      watchDebounceTimeout = setTimeout(() => {
-        compileWorkspaceStructure();
-      }, 100);
+    let watchDebounceTimeout: NodeJS.Timeout | null = null;
+    
+    // Explicitly typed (eventType: string) to make the TypeScript compiler happy
+    fs.watch(configPath, (eventType: string) => {
+      if (eventType === 'change') {
+        if (watchDebounceTimeout) clearTimeout(watchDebounceTimeout);
+        watchDebounceTimeout = setTimeout(() => {
+          compileWorkspaceStructure();
+        }, 100);
+      }
+    });
+
+    const monorepoDashboardPath = path.join(path.resolve(projectRoot, '..'), 'packages', 'openauth-dashboard');
+    const embeddedDashboardPath = path.join(__dirname, '..', 'dashboard');
+    const dashboardPath = fs.existsSync(monorepoDashboardPath) ? monorepoDashboardPath : embeddedDashboardPath;
+
+    if (!fs.existsSync(dashboardPath)) {
+      process.exit(1);
     }
-  });
 
-  const monorepoDashboardPath = path.join(path.resolve(projectRoot, '..'), 'packages', 'openauth-dashboard');
-  const embeddedDashboardPath = path.join(__dirname, '..', 'dashboard');
-  const dashboardPath = fs.existsSync(monorepoDashboardPath) ? monorepoDashboardPath : embeddedDashboardPath;
+    const isWindows = process.platform === 'win32';
+    const npmCommand = isWindows ? 'npm.cmd' : 'npm';
 
-  if (!fs.existsSync(dashboardPath)) {
-    process.exit(1);
+    const nextProcess = spawn(npmCommand, ['run', 'dev', '--', '-p', '4000'], {
+      cwd: dashboardPath,
+      stdio: 'inherit',
+      shell: true, 
+      env: { ...process.env, APP_TARGET_PROJECT_ROOT: projectRoot }
+    });
+
+    nextProcess.on('close', (code) => process.exit(code || 0));
   }
-
-  const isWindows = process.platform === 'win32';
-  const npmCommand = isWindows ? 'npm.cmd' : 'npm';
-
-  const nextProcess = spawn(npmCommand, ['run', 'dev', '--', '-p', '4000'], {
-    cwd: dashboardPath,
-    stdio: 'inherit',
-    shell: true, 
-    env: { ...process.env, APP_TARGET_PROJECT_ROOT: projectRoot }
-  });
-
-  nextProcess.on('close', (code) => process.exit(code || 0));
 }
+
+// Trigger the application sequence cleanly
+runCliPipeline();
