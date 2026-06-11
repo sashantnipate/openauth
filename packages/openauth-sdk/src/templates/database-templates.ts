@@ -65,4 +65,88 @@ MembershipSchema.index({ userId: 1 });
 export const MembershipModel = mongoose.models.Membership || mongoose.model<IMembership>('Membership', MembershipSchema);
 `;
 
+// Add this string constant to packages/openauth-sdk/src/templates/database-templates.ts
+
+export const DB_TEMPLATE = `import mongoose from 'mongoose';
+
+const MONGODB_URI = process.env.MONGODB_URI;
+
+if (!MONGODB_URI) {
+  throw new Error('Please define the MONGODB_URI environment variable inside .env');
+}
+
+/**
+ * Global is used here to maintain a cached connection across hot reloads
+ * in development and serverless scope execution fields.
+ */
+let cached = (global as any).mongoose;
+
+if (!cached) {
+  cached = (global as any).mongoose = { conn: null, promise: null };
+}
+
+export async function connectToDatabase() {
+  if (cached.conn) {
+    return cached.conn;
+  }
+
+  if (!cached.promise) {
+    const opts = {
+      bufferCommands: false,
+    };
+
+    cached.promise = mongoose.connect(MONGODB_URI!, opts).then((mongooseInstance) => {
+      return mongooseInstance;
+    });
+  }
+
+  try {
+    cached.conn = await cached.promise;
+  } catch (e) {
+    cached.promise = null;
+    throw e;
+  }
+
+  return cached.conn;
+}
+`;
+
+export const AUTH_SETTINGS_TEMPLATE = `import mongoose, { Schema, Document } from 'mongoose';
+
+export interface IAuthSettings extends Document {
+  settings: {
+    sessionDuration: string;
+    organizations: {
+      enabled: boolean;
+      allowUserCreate: boolean;
+      autoCreateOnSignup: boolean;
+      defaultMaxMembers: number;
+    };
+    allowUserSignups: boolean;
+  };
+  providers: {
+    github: { enabled: boolean };
+    google: { enabled: boolean };
+  };
+}
+
+const AuthSettingsSchema = new Schema<IAuthSettings>({
+  settings: {
+    sessionDuration: { type: String, default: '1d' },
+    organizations: {
+      enabled: { type: Boolean, default: false },
+      allowUserCreate: { type: Boolean, default: false },
+      autoCreateOnSignup: { type: Boolean, default: false },
+      defaultMaxMembers: { type: Number, default: 5 }
+    },
+    allowUserSignups: { type: Boolean, default: true }
+  },
+  providers: {
+    github: { enabled: { type: Boolean, default: false } },
+    google: { enabled: { type: Boolean, default: false } }
+  }
+});
+
+export const AuthSettingsModel = mongoose.models.AuthSettings || mongoose.model<IAuthSettings>('AuthSettings', AuthSettingsSchema);
+`;
 export const BARREL_TEMPLATE = `export { UserModel } from './User';\nexport { OrgModel } from './Organization';\nexport { MembershipModel } from './Membership';\n`;

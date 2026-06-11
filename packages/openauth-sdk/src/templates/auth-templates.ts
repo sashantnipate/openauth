@@ -1,12 +1,16 @@
+// Replace API_CATCHALL_TEMPLATE inside packages/openauth-sdk/src/templates/auth-templates.ts
+
 export const API_CATCHALL_TEMPLATE = `import { NextRequest, NextResponse } from 'next/server';
 import { OpenAuthEngine } from '@openauth/nextjs';
 import { getLocalConfig } from '@openauth/nextjs';
+import { connectToDatabase } from '@/lib/db';
 import { UserModel, OrgModel, MembershipModel } from '@/models/openauth';
 
 const engine = new OpenAuthEngine({ UserModel, OrgModel, MembershipModel });
 
 export async function GET() {
-  const config = getLocalConfig();
+  await connectToDatabase();
+  const config = await getLocalConfig();
   return NextResponse.json({
     allowUserSignups: config.settings?.allowUserSignups || false,
     organizationsEnabled: config.settings?.organizations?.enabled || false,
@@ -18,6 +22,7 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest, context: any) {
+  await connectToDatabase();
   const params = await context.params;
   const action = params.openauth?.[0];
   const body = await request.json();

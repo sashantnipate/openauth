@@ -1,15 +1,11 @@
-import { getLocalConfig, OpenAuthConfig } from './backend/config';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { promisify } from 'util';
-
-export { getLocalConfig };
-export type { OpenAuthConfig };
+import mongoose from 'mongoose';
 
 const scryptAsync = promisify(crypto.scrypt);
 
-// SECURITY FIX: Never fall back to a public, plain-text string for cryptography.
-// If a developer forgets to set this, we halt execution immediately before any tokens are compromised.
+// SECURITY ASSERTION: Prevent system compilation or bootstrap if core cryptographic key is omitted
 if (!process.env.OPENAUTH_SECRET) {
   throw new Error(
     "🚨 [openAuth CRITICAL] The OPENAUTH_SECRET environment variable is missing! " +
@@ -18,15 +14,33 @@ if (!process.env.OPENAUTH_SECRET) {
 }
 const JWT_SECRET = process.env.OPENAUTH_SECRET;
 
+/**
+ * Helper to dynamically pull runtime settings directly from the MongoDB collection.
+ * Falls back to default secure layout configurations if not initialized.
+ */
+async function getLiveDatabaseConfig(): Promise<any> {
+  const AuthSettings = mongoose.models.AuthSettings || mongoose.model('AuthSettings', new mongoose.Schema({}, { strict: false }));
+  const config = await AuthSettings.findOne().lean();
+  return config || {
+    settings: {
+      sessionDuration: "1d",
+      organizations: { enabled: false, allowUserCreate: false, autoCreateOnSignup: false, defaultMaxMembers: 5 },
+      allowUserSignups: true
+    },
+    providers: {
+      github: { enabled: false },
+      google: { enabled: false }
+    }
+  };
+}
+
 export class OpenAuthEngine {
   private UserModel: any;
   private OrgModel: any;
   private MembershipModel: any;
 
   /**
-   * Future Dev Note: The engine acts as a headless database operator.
-   * We pass models explicitly through the constructor so the SDK remains 
-   * database-agnostic and won't get locked into a single specific connection instance.
+   * Headless database constructor injecting local compilation identity matrices
    */
   constructor(models: { UserModel: any; OrgModel: any; MembershipModel: any }) {
     this.UserModel = models.UserModel;
@@ -55,21 +69,41 @@ export class OpenAuthEngine {
   }
 
   /**
-   * Provisions a brand new identity account.
+   * Provisions a brand new identity account with defensive environment guard assertions.
    */
   async signup(input: { email: string; name: string; password?: string; githubId?: string; googleId?: string }) {
-    const config = getLocalConfig();
+    const config = await getLiveDatabaseConfig();
 
+    // 1. Enforce global activation guard flags
     if (!config.settings.allowUserSignups) {
       throw new Error("Registration is explicitly disabled by admin configurations.");
     }
 
+    // 2. Strict OAuth Isolation Verification: Assert presence of server-side keys if provider toggles are true
+    if (config.providers?.github?.enabled) {
+      if (!process.env.GITHUB_CLIENT_ID || !process.env.GITHUB_CLIENT_SECRET) {
+        throw new Error(
+          "🚨 [openAuth CRITICAL] GitHub OAuth provider is enabled in database configurations, " +
+          "but GITHUB_CLIENT_ID or GITHUB_CLIENT_SECRET is missing from server memory environments."
+        );
+      }
+    }
+
+    if (config.providers?.google?.enabled) {
+      if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
+        throw new Error(
+          "🚨 [openAuth CRITICAL] Google OAuth provider is enabled in database configurations, " +
+          "but GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET is missing from server memory environments."
+        );
+      }
+    }
+
+    // 3. Complete database unique check execution
     const existingUser = await this.UserModel.findOne({ email: input.email.toLowerCase() });
     if (existingUser) throw new Error("A user with this email address already exists.");
 
     const passwordHash = input.password ? await this.hashPassword(input.password) : undefined;
     
-    // Default system initialization: new users are marked as authorized to make workspaces
     const user = await this.UserModel.create({
       email: input.email.toLowerCase(),
       name: input.name,
@@ -81,7 +115,7 @@ export class OpenAuthEngine {
     let autoCreatedOrg = null;
     const orgConfig = config.settings.organizations;
 
-    // RUNTIME FLAG ENFORCEMENT: We check if multi-tenancy is active before generating org data
+    // RUNTIME FLAG ENFORCEMENT: Check multi-tenancy status before compiling organization data
     if (orgConfig && orgConfig.enabled && orgConfig.autoCreateOnSignup) {
       autoCreatedOrg = await this.OrgModel.create({
         name: `${user.name}'s Workspace`,
@@ -105,10 +139,9 @@ export class OpenAuthEngine {
 
   /**
    * Action: Custom Organization Provisioning Flow
-   * Features: Enforces runtime feature flags and granular per-user restriction checks.
    */
   async createOrganization(userId: string, targetOrgName: string) {
-    const config = getLocalConfig();
+    const config = await getLiveDatabaseConfig();
 
     // 1. Evaluate architectural capability switch
     if (!config.settings.organizations?.enabled) {

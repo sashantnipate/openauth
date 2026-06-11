@@ -9,7 +9,7 @@ import { stdin as input, stdout as output } from 'process';
 // Dynamic Template Modules Imports
 import { USER_TEMPLATE, ORG_TEMPLATE, MEMBERSHIP_TEMPLATE, BARREL_TEMPLATE } from '../templates/database-templates';
 import { API_CATCHALL_TEMPLATE, AUTH_FORM_TEMPLATE, SIGN_IN_PAGE_TEMPLATE, SIGN_UP_PAGE_TEMPLATE } from '../templates/auth-templates';
-
+import { DB_TEMPLATE } from '../templates/database-templates';
 const command = process.argv[2];
 
 // ============================================================================
@@ -51,6 +51,7 @@ function compileWorkspaceStructure() {
     ensureBaseConfigFile(configPath);
 
     const paths = {
+      db: hasSrcDir ? path.join(projectRoot, 'src', 'lib') : path.join(projectRoot, 'lib'),
       models: hasSrcDir ? path.join(projectRoot, 'src', 'models', 'openauth') : path.join(projectRoot, 'models', 'openauth'),
       api: hasSrcDir ? path.join(projectRoot, 'src', 'app', 'api', 'auth', '[...openauth]') : path.join(projectRoot, 'app', 'api', 'auth', '[...openauth]'),
       components: hasSrcDir ? path.join(projectRoot, 'src', 'components', 'openauth') : path.join(projectRoot, 'components', 'openauth'),
@@ -59,6 +60,7 @@ function compileWorkspaceStructure() {
     };
 
     const structuralFileMap = [
+      { dir: paths.db, file: 'db.ts', content: DB_TEMPLATE },
       { dir: paths.models, file: 'User.ts', content: USER_TEMPLATE },
       { dir: paths.models, file: 'Organization.ts', content: ORG_TEMPLATE },
       { dir: paths.models, file: 'Membership.ts', content: MEMBERSHIP_TEMPLATE },
@@ -155,11 +157,34 @@ async function runCliPipeline() {
       process.exit(1);
     }
 
+    // --- FIX: Read and parse .env into an environment map injection block ---
+    const localEnvPath = path.join(projectRoot, '.env');
+    const runtimeEnvPushed: Record<string, string> = {};
+    
+    if (fs.existsSync(localEnvPath)) {
+      const lines = fs.readFileSync(localEnvPath, 'utf-8').split(/\r?\n/);
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) continue;
+        const match = trimmed.match(/^([^=]+)=(.*)$/);
+        if (match) {
+          const key = match[1].trim();
+          let val = match[2].trim();
+          // Strip out outer string wrappers safely if wrapped
+          if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+            val = val.slice(1, -1);
+          }
+          runtimeEnvPushed[key] = val;
+        }
+      }
+    }
+
     const nextProcess = spawn(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', 'dev', '--', '-p', '4000'], {
       cwd: dashboardPath,
       stdio: 'inherit',
       shell: true, 
-      env: { ...process.env, APP_TARGET_PROJECT_ROOT: projectRoot }
+      // Proxy all parsed context keys directly into the child workspace engine
+      env: { ...process.env, ...runtimeEnvPushed, APP_TARGET_PROJECT_ROOT: projectRoot }
     });
 
     nextProcess.on('close', (code) => process.exit(code || 0));

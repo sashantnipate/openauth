@@ -1,47 +1,91 @@
 import { NextResponse } from 'next/server';
-import fs from 'fs';
-import path from 'path';
+import mongoose from 'mongoose';
 
-const targetProjectRoot = process.env.APP_TARGET_PROJECT_ROOT || process.cwd();
-const configPath = path.join(targetProjectRoot, 'openauth.json');
+// Inline schema definition - KEEP GLOBAL SCOPE CLEAN OF INSTANT CONNECTION EXECUTIONS
+const AuthSettingsSchema = new mongoose.Schema({
+  settings: {
+    sessionDuration: { type: String, default: '1d' },
+    organizations: {
+      enabled: { type: Boolean, default: false },
+      allowUserCreate: { type: Boolean, default: false },
+      autoCreateOnSignup: { type: Boolean, default: false },
+      defaultMaxMembers: { type: Number, default: 5 }
+    },
+    allowUserSignups: { type: Boolean, default: true }
+  },
+  providers: {
+    github: { enabled: { type: Boolean, default: false } },
+    google: { enabled: { type: Boolean, default: false } }
+  }
+});
+
+const AuthSettingsModel = mongoose.models.AuthSettings || mongoose.model('AuthSettings', AuthSettingsSchema);
+
+const DEFAULT_CONFIG = {
+  settings: {
+    sessionDuration: "1d",
+    organizations: { enabled: false, allowUserCreate: false, autoCreateOnSignup: false, defaultMaxMembers: 5 },
+    allowUserSignups: true
+  },
+  providers: { github: { enabled: false }, google: { enabled: false } }
+};
 
 export async function GET() {
   try {
-    if (!fs.existsSync(configPath)) {
-      return NextResponse.json({ error: 'Configuration matrix missing' }, { status: 404 });
+    // 1. Guard check before doing anything else
+    if (!process.env.MONGODB_URI) {
+      return NextResponse.json({ 
+        error: 'MONGODB_URI environment variable is missing or unreadable by the dashboard process.' 
+      }, { status: 500 });
     }
-    const data = fs.readFileSync(configPath, 'utf-8');
-    return NextResponse.json(JSON.parse(data));
-  } catch (error) {
-    return NextResponse.json({ error: 'Failed to parse configuration matrix' }, { status: 500 });
+
+    // 2. LAZY CONNECTION: Connect only when the route handler is invoked!
+    if (mongoose.connection.readyState === 0) {
+      await mongoose.connect(process.env.MONGODB_URI);
+    }
+
+    let config = await AuthSettingsModel.findOne().lean();
+    if (!config) {
+      config = await AuthSettingsModel.create(DEFAULT_CONFIG);
+    }
+
+    const responsePayload = {
+      ...config,
+      envStatus: {
+        githubKeysPresent: !!(process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET),
+        googleKeysPresent: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET)
+      }
+    };
+
+    return NextResponse.json(responsePayload);
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message || 'Failed to sync with database server.' }, { status: 500 });
   }
 }
 
 export async function POST(request: Request) {
   try {
+    if (!process.env.MONGODB_URI) {
+      return NextResponse.json({ error: 'MONGODB_URI is missing.' }, { status: 500 });
+    }
+
+    if (mongoose.connection.readyState === 0) {
+      await mongoose.connect(process.env.MONGODB_URI);
+    }
+
     const updatedConfig = await request.json();
     
-    // Light structural sanity verification layer protecting local configurations from corruption
-    if (!updatedConfig || typeof updatedConfig !== 'object') {
-      return NextResponse.json({ error: 'Invalid configuration object formatting' }, { status: 400 });
-    }
-    if (!updatedConfig.settings || !updatedConfig.providers) {
-      return NextResponse.json({ error: 'Missing necessary system control object definitions' }, { status: 400 });
-    }
+    const cleanUpdatePayload = {
+      settings: updatedConfig.settings,
+      providers: {
+        github: { enabled: !!updatedConfig.providers?.github?.enabled },
+        google: { enabled: !!updatedConfig.providers?.google?.enabled }
+      }
+    };
 
-    // Safely enforce consistent object schema transformations prior to write operations
-    if (typeof updatedConfig.settings.organizations === 'boolean') {
-      updatedConfig.settings.organizations = {
-        enabled: updatedConfig.settings.organizations,
-        allowUserCreate: false,
-        autoCreateOnSignup: false,
-        defaultMaxMembers: 5
-      };
-    }
-
-    fs.writeFileSync(configPath, JSON.stringify(updatedConfig, null, 2), 'utf-8');
-    return NextResponse.json({ success: true, updatedConfig });
-  } catch (error) {
-    return NextResponse.json({ error: 'Failed to write configuration changes securely' }, { status: 500 });
+    const doc = await AuthSettingsModel.findOneAndUpdate({}, cleanUpdatePayload, { new: true, upsert: true });
+    return NextResponse.json({ success: true, updatedConfig: doc });
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message || 'Database write operational failure.' }, { status: 500 });
   }
 }
