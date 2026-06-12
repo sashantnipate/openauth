@@ -1,0 +1,10 @@
+{
+  "name": "@openauth/nextjs",
+  "version": "1.0.0",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "dependencies": {
+    "@openauth/sdk": "*",
+    "next": "^13.0.0 || ^14.0.0 || ^15.0.0"
+  }
+}
