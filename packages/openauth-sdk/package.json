@@ -16,6 +16,7 @@
     "jsonwebtoken": "^9.0.2"
   },
   "devDependencies": {
+    "@types/inquirer": "^9.0.9",
     "@types/jsonwebtoken": "^9.0.6",
     "tsup": "^8.0.2",
     "typescript": "^5.0.0"
