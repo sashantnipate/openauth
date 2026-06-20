@@ -1,5 +1,5 @@
 {
-  "name": "@openauth/nextjs",
+  "name": "@openauth/sdk",
   "version": "1.0.0",
   "description": "Headless Dev-First Authentication Engine for Next.js",
   "main": "./dist/index.js",
