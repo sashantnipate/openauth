@@ -1,7 +1,10 @@
-import { OpenAuthConfig } from "./types";
-import { OpenAuthAdapter } from "./repository";
+import { OpenAuthConfig } from "./types/index";
+import { OpenAuthAdapter } from "./repository/index";
 import { signupAction } from "./auth/signup";
 import { signinAction } from "./auth/signin";
+import { handleGitHubCallbackAction } from "./oauth/github";
+import { handleGoogleCallbackAction } from "./oauth/google";
+import { createOrganizationAction } from "./organizations/create-org";
 
 export class OpenAuth {
   constructor(
@@ -16,4 +19,18 @@ export class OpenAuth {
   async signin(input: any) {
     return signinAction(this, input);
   }
+
+  async handleGitHubCallback(input: { code: string }) {
+    return handleGitHubCallbackAction(this, input);
+  }
+
+  async handleGoogleCallback(input: { code: string; redirectUri: string }) {
+    return handleGoogleCallbackAction(this, input);
+  }
+
+  // Organization Hooks
+  async createOrganization(userId: string, name: string) {
+    return createOrganizationAction(this, userId, name);
+  }
+
 }

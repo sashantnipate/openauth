@@ -42,6 +42,7 @@ export interface AuthenticationConfig {
  * Root configuration for the OpenAuth SDK.
  */
 export interface OpenAuthConfig {
+  secret: string,
   auth: AuthenticationConfig;
   providers: {
     github: OAuthProviderConfig;
