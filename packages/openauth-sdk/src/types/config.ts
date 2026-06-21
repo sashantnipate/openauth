@@ -1,37 +1,45 @@
-import mongoose from 'mongoose';
 
 /**
- * Injection blueprint for user-supplied database entities
+ * ============================================================================
+ * OpenAuth Configuration Types
+ * ============================================================================
+ * These types describe how the authentication engine is configured.
+ * They are completely independent of any database or framework.
+ * ============================================================================
  */
-export interface OpenAuthModels {
-  UserModel: mongoose.Model<any>;
-  OrgModel: mongoose.Model<any>;
-  MembershipModel: mongoose.Model<any>;
+
+export interface SessionConfig {
+  /**
+   * Session lifetime.
+   * Examples:
+   * "1h"
+   * "1d"
+   * "7d"
+   * "30d"
+   */
+  duration: string;
 }
 
-/**
- * Global operational framework state shared down into isolated module actions
- */
-export interface OpenAuthContext extends OpenAuthModels {
-  secret: string;
+export interface OrganizationConfig {
+  enabled: boolean;
+  allowUserCreate: boolean;
+  autoCreateOnSignup: boolean;
+  defaultMaxMembers: number;
 }
 
-/**
- * Structural matrix mapping directly to dynamic schema properties inside the AuthSettings collection
- */
-export interface OpenAuthConfigMatrix {
-  settings: {
-    sessionDuration: string;
-    organizations: {
-      enabled: boolean;
-      allowUserCreate?: boolean;
-      autoCreateOnSignup?: boolean;
-      defaultMaxMembers?: number;
-    };
-    allowUserSignups: boolean;
-  };
+export interface OAuthProviderConfig {
+  enabled: boolean;
+  clientId?: string;
+  clientSecret?: string;
+}
+
+export interface OpenAuthConfig {
+  session: SessionConfig;
+
+  organizations: OrganizationConfig;
+
   providers: {
-    github: { enabled: boolean };
-    google: { enabled: boolean };
+    github: OAuthProviderConfig;
+    google: OAuthProviderConfig;
   };
 }
