@@ -1,23 +1,20 @@
-import { OpenAuthContext } from '../types/config';
-import { getLiveDatabaseConfig } from '../utils/config';
+import { OpenAuth } from '../OpenAuth';
 
 /**
  * Custom Organization Provisioning Flow
  */
 export async function createOrganizationAction(
-  ctx: OpenAuthContext, 
+  auth: OpenAuth, 
   userId: string, 
   targetOrgName: string
 ) {
-  const config = await getLiveDatabaseConfig();
-
   // 1. Evaluate architectural multi-tenancy status flag
-  if (!config.settings.organizations?.enabled) {
+  if (!auth.config.auth.organizations.enabled) {
     throw new Error("Enterprise multi-tenancy modules are currently deactivated on this instance.");
   }
 
-  // 2. Locate the initiating individual account
-  const user = await ctx.UserModel.findById(userId);
+  // 2. Locate the initiating individual account using repository adapter
+  const user = await auth.adapter.users.findById(userId);
   if (!user) {
     throw new Error("The specified user identity could not be verified.");
   }
@@ -27,22 +24,24 @@ export async function createOrganizationAction(
     throw new Error("Your account permissions restrict you from establishing new corporate workspaces.");
   }
 
-  // 4. Everything matches -> Commit transaction documents safely
-  const newWorkspace = await ctx.OrgModel.create({
+  // 4. Everything matches -> Commit transaction documents via repository
+  const newWorkspace = await auth.adapter.organizations.create({
     name: targetOrgName.trim(),
-    creatorId: user._id,
-    maxMembers: config.settings.organizations.defaultMaxMembers || 5
+    creatorId: user.id,
+    maxMembers: auth.config.auth.organizations.defaultMaxMembers ?? 5,
+    createdAt: new Date()
   });
 
   // 5. Automatically tie creator with admin authority contexts
-  await ctx.MembershipModel.create({
-    orgId: newWorkspace._id,
-    userId: user._id,
-    role: 'admin'
+  await auth.adapter.organizationMemberships.create({
+    organizationId: newWorkspace.id,
+    userId: user.id,
+    role: 'admin',
+    joinedAt: new Date()
   });
 
   return {
-    id: newWorkspace._id,
+    id: newWorkspace.id,
     name: newWorkspace.name,
     role: 'admin' as const
   };

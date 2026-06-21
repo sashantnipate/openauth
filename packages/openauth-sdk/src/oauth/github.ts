@@ -1,20 +1,17 @@
-import jwt from 'jsonwebtoken';
-import { OpenAuthContext } from '../types/config';
-import { getLiveDatabaseConfig } from '../utils/config';
+import { OpenAuth } from '../OpenAuth';
+import { generateToken } from '../utils/jwt';
 
 export async function handleGitHubCallbackAction(
-  ctx: OpenAuthContext,
+  auth: OpenAuth,
   input: { code: string }
 ) {
-  const config = await getLiveDatabaseConfig();
-
-  // 1. Guard check to make sure the provider is enabled in database settings
-  if (!config.providers?.github?.enabled) {
+  // 1. Guard check to make sure the provider is enabled in configurations
+  if (!auth.config.providers.github.enabled) {
     throw new Error("GitHub single sign-on provider is currently disabled.");
   }
 
-  const clientId = process.env.GITHUB_CLIENT_ID;
-  const clientSecret = process.env.GITHUB_CLIENT_SECRET;
+  const clientId = auth.config.providers.github.clientId;
+  const clientSecret = auth.config.providers.github.clientSecret;
 
   if (!clientId || !clientSecret) {
     throw new Error("🚨 [openAuth] GitHub client keys are missing from server configurations.");
@@ -53,44 +50,72 @@ export async function handleGitHubCallbackAction(
   }
 
   const githubIdString = githubUser.id.toString();
+  const userEmail = githubUser.email?.toLowerCase().trim();
   
-  // 4. Look up internal user tables by provider key identity handles
-  let user = await ctx.UserModel.findOne({ "providers.githubId": githubIdString });
+  // 4. Look up internal user tables via the repository interface contract
+  // First, check if this GitHub account is already linked to an existing profile
+  let user = null;
+  const linkedAccount = await auth.adapter.oauthAccounts.findByProvider("github", githubIdString);
 
-  if (!user) {
+  if (linkedAccount) {
+    user = await auth.adapter.users.findById(linkedAccount.userId);
+  }
+
+  if (!user && userEmail) {
     // Fall back to looking up matching email entries to prevent split account bugs
-    const userEmail = githubUser.email?.toLowerCase().trim();
-    if (userEmail) {
-      user = await ctx.UserModel.findOne({ email: userEmail });
-    }
-
+    user = await auth.adapter.users.findByEmail(userEmail);
     if (user) {
-      // Tie provider key values to original profile records securely
-      user.providers.githubId = githubIdString;
-      await user.save();
-    } else {
-      // Create a new account if no existing record matches
-      if (!config.settings.allowUserSignups) {
-        throw new Error("Registration is restricted. New user generation blocks are active.");
-      }
-
-      user = await ctx.UserModel.create({
-        email: userEmail || `${githubIdString}@github.openauth.local`,
-        name: githubUser.name || githubUser.login || "GitHub User",
-        providers: { githubId: githubIdString },
-        canCreateOrganizations: true,
+      // Link the OAuth account to the existing user profile
+      await auth.adapter.oauthAccounts.create({
+        userId: user.id,
+        provider: "github",
+        providerUserId: githubIdString,
+        createdAt: new Date(),
+        updatedAt: new Date()
       });
     }
   }
 
-  // 5. Generate secure crypt token response maps
-  const token = jwt.sign({ userId: user._id.toString() }, ctx.secret, {
-    expiresIn: config.settings.sessionDuration as any,
-  });
+  if (!user) {
+    // Create a brand new account if no existing record matches
+    if (!auth.config.auth.allowUserSignups) {
+      throw new Error("Registration is restricted. New user generation blocks are active.");
+    }
+
+    user = await auth.adapter.users.create({
+      email: userEmail || `${githubIdString}@github.openauth.local`,
+      name: githubUser.name || githubUser.login || "GitHub User",
+      providers: { github: githubIdString },
+      canCreateOrganizations: true,
+      createdAt: new Date()
+    });
+
+    // Link the new OAuth record
+    await auth.adapter.oauthAccounts.create({
+      userId: user.id,
+      provider: "github",
+      providerUserId: githubIdString,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    });
+  }
+
+  // 5. Generate secure crypt token response maps using your built-in utility
+  const encryptionSecret = (auth.config as any).secret || "fallback_system_secret_key";
+  const token = generateToken(
+    { userId: user.id },
+    encryptionSecret,
+    auth.config.auth.session.duration as any
+  );
 
   return {
-    user: { id: user._id, email: user.email, name: user.name },
+    user: { 
+      id: user.id, 
+      email: user.email, 
+      name: user.name,
+      canCreateOrganizations: user.canCreateOrganizations
+    },
     token,
-    organization: null, // Resolves separately during session routing initialization
+    organization: null, 
   };
 }

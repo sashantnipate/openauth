@@ -1,9 +1,10 @@
-import { OpenAuthContext } from '../types/config';
+import { OpenAuth } from '../OpenAuth';
+import { LogoutResult } from '../types';
 
 export async function logoutAction(
-  ctx: OpenAuthContext,
+  auth: OpenAuth,
   token?: string
-) {
+): Promise<LogoutResult> {
   // Developer Hook Vector: If token blacklists are added in future iterations, 
   // execution handling drops directly inside this layer block.
   

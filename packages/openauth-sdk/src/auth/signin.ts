@@ -1,22 +1,21 @@
-import jwt from 'jsonwebtoken';
-import { OpenAuthContext } from '../types/config';
-import { getLiveDatabaseConfig } from '../utils/config';
+import { OpenAuth } from '../OpenAuth';
+import { SigninInput, AuthResult } from '../types';
+import { generateToken } from '../utils/jwt';
 import { verifyPassword } from '../utils/password';
 
 export async function signinAction(
-  ctx: OpenAuthContext,
-  input: { email: string; password?: string }
-) {
-  const config = await getLiveDatabaseConfig();
+  auth: OpenAuth,
+  input: SigninInput
+): Promise<AuthResult> {
   const normalizedEmail = input.email.toLowerCase().trim();
 
-  // 1. Locate user profile identity
-  const user = await ctx.UserModel.findOne({ email: normalizedEmail });
+  // 1. Locate user profile identity using the repository adapter contract
+  const user = await auth.adapter.users.findByEmail(normalizedEmail);
   if (!user) {
     throw new Error("Invalid email or password combinations.");
   }
 
-  // 2. Validate traditional credential records if a password is provided
+  // 2. Validate traditional credential records
   if (input.password) {
     if (!user.passwordHash) {
       throw new Error("This account relies on third-party single sign-on providers. Please log in using OAuth.");
@@ -32,21 +31,32 @@ export async function signinAction(
 
   // 3. Resolve active workspace contexts if tenant lookups are open
   let activeWorkspace = null;
-  if (config.settings.organizations?.enabled) {
-    const membership = await ctx.MembershipModel.findOne({ userId: user._id }).lean();
-    if (membership) {
-      activeWorkspace = await ctx.OrgModel.findById(membership.orgId).lean();
+  if (auth.config.auth.organizations.enabled) {
+    const memberships = await auth.adapter.organizationMemberships.findByUserId(user.id);
+    const primaryMembership = memberships[0]; // Fetch their initial associated workspace link
+    
+    if (primaryMembership) {
+      activeWorkspace = await auth.adapter.organizations.findById(primaryMembership.organizationId);
     }
   }
 
-  // 4. Issue standard stateless session credentials
-  const token = jwt.sign({ userId: user._id.toString() }, ctx.secret, {
-    expiresIn: config.settings.sessionDuration as any
-  });
+  // 4. Issue standard token using your built-in utility helper function
+  // In a production environment, pass a secure environment variable key instead of a static string fallback
+  const encryptionSecret = (auth.config as any).secret || "fallback_system_secret_key";
+  const token = generateToken(
+    { userId: user.id },
+    encryptionSecret,
+    auth.config.auth.session.duration as any
+  );
 
   return {
-    user: { id: user._id, email: user.email, name: user.name },
+    user: { 
+      id: user.id, 
+      email: user.email, 
+      name: user.name,
+      canCreateOrganizations: user.canCreateOrganizations 
+    },
     token,
-    organization: activeWorkspace ? { id: activeWorkspace._id, name: activeWorkspace.name } : null
+    organization: activeWorkspace ? { id: activeWorkspace.id, name: activeWorkspace.name } : null
   };
 }

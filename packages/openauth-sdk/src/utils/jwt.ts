@@ -1,7 +1,7 @@
 import jwt, { JwtPayload } from "jsonwebtoken";
 
 /**
- * Generates a signed JWT.
+ * Generates a signed JWT using HS256.
  */
 export function generateToken(
   payload: Record<string, unknown>,
@@ -15,7 +15,7 @@ export function generateToken(
 }
 
 /**
- * Verifies and decodes a JWT.
+ * Verifies and decodes an inbound JWT signature context safely.
  */
 export function verifyToken<T extends JwtPayload = JwtPayload>(
   token: string,
@@ -29,19 +29,13 @@ export function verifyToken<T extends JwtPayload = JwtPayload>(
 }
 
 /**
- * Decodes a JWT without verifying its signature.
- *
- * This should only be used when the payload is needed
- * without validating the token.
+ * Decodes a JWT payload without verifying its signature.
+ * Use only when payload attributes are needed instantly without strict integrity validations.
  */
-export function decodeToken<T extends JwtPayload = JwtPayload>(
-  token: string
-): T | null {
+export function decodeToken<T extends JwtPayload = JwtPayload>(token: string): T | null {
   const decoded = jwt.decode(token);
-
   if (!decoded || typeof decoded === "string") {
     return null;
   }
-
   return decoded as T;
 }

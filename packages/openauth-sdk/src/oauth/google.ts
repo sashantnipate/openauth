@@ -1,20 +1,17 @@
-import jwt from 'jsonwebtoken';
-import { OpenAuthContext } from '../types/config';
-import { getLiveDatabaseConfig } from '../utils/config';
+import { OpenAuth } from '../OpenAuth';
+import { generateToken } from '../utils/jwt';
 
 export async function handleGoogleCallbackAction(
-  ctx: OpenAuthContext,
+  auth: OpenAuth,
   input: { code: string; redirectUri: string }
 ) {
-  const config = await getLiveDatabaseConfig();
-
   // 1. Assert provider status flags inside internal configurations
-  if (!config.providers?.google?.enabled) {
+  if (!auth.config.providers.google.enabled) {
     throw new Error("Google single sign-on provider is currently deactivated.");
   }
 
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const clientId = auth.config.providers.google.clientId;
+  const clientSecret = auth.config.providers.google.clientSecret;
 
   if (!clientId || !clientSecret) {
     throw new Error("🚨 [openAuth] Google client parameters are missing from active environments.");
@@ -51,37 +48,66 @@ export async function handleGoogleCallbackAction(
   const googleIdString = googleUser.id.toString();
   const googleEmailNormalized = googleUser.email.toLowerCase().trim();
 
-  // 4. Sync profile information with your MongoDB collections
-  let user = await ctx.UserModel.findOne({ "providers.googleId": googleIdString });
+  // 4. Sync profile information via repository adapters
+  let user = null;
+  const linkedAccount = await auth.adapter.oauthAccounts.findByProvider("google", googleIdString);
+
+  if (linkedAccount) {
+    user = await auth.adapter.users.findById(linkedAccount.userId);
+  }
 
   if (!user) {
     // Deduplicate profiles using email lookup strategies
-    user = await ctx.UserModel.findOne({ email: googleEmailNormalized });
+    user = await auth.adapter.users.findByEmail(googleEmailNormalized);
 
     if (user) {
-      user.providers.googleId = googleIdString;
-      await user.save();
+      // Link Google credentials to existing email profile
+      await auth.adapter.oauthAccounts.create({
+        userId: user.id,
+        provider: "google",
+        providerUserId: googleIdString,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      });
     } else {
-      if (!config.settings.allowUserSignups) {
+      if (!auth.config.auth.allowUserSignups) {
         throw new Error("Registration is disabled. New Google identity generation operations halted.");
       }
 
-      user = await ctx.UserModel.create({
+      user = await auth.adapter.users.create({
         email: googleEmailNormalized,
         name: googleUser.name || "Google User",
-        providers: { googleId: googleIdString },
+        providers: { google: googleIdString },
         canCreateOrganizations: true,
+        createdAt: new Date()
+      });
+
+      // Establish initial provider map linkage link
+      await auth.adapter.oauthAccounts.create({
+        userId: user.id,
+        provider: "google",
+        providerUserId: googleIdString,
+        createdAt: new Date(),
+        updatedAt: new Date()
       });
     }
   }
 
-  // 5. Build and return authorization session strings
-  const token = jwt.sign({ userId: user._id.toString() }, ctx.secret, {
-    expiresIn: config.settings.sessionDuration as any,
-  });
+  // 5. Build and return authorization session strings using built-in utilities
+  const encryptionSecret = (auth.config as any).secret || "fallback_system_secret_key";
+  const token = generateToken(
+    { userId: user.id },
+    encryptionSecret,
+    auth.config.auth.session.duration as any
+  );
 
   return {
-    user: { id: user._id, email: user.email, name: user.name },
+    user: { 
+      id: user.id, 
+      email: user.email, 
+      name: user.name,
+      canCreateOrganizations: user.canCreateOrganizations
+    },
     token,
     organization: null,
   };
