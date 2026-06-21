@@ -1,32 +1,46 @@
-import mongoose from 'mongoose';
+export interface Organization {
+  /**
+   * Unique organization identifier.
+   */
+  id: string;
 
-/**
- * Data blueprint mapping properties representing top-level company or team containers
- */
-export interface IOrganizationFields {
-  _id: mongoose.Types.ObjectId;
+  /**
+   * Organization name.
+   */
   name: string;
-  creatorId: mongoose.Types.ObjectId;
+
+  /**
+   * User who created the organization.
+   */
+  creatorId: string;
+
+  /**
+   * Maximum number of allowed members.
+   */
   maxMembers: number;
+
+  /**
+   * Timestamp when the organization was created.
+   */
   createdAt: Date;
 }
 
 /**
- * Data blueprint for tenant linkage documents connecting users to workspace units
- */
-export interface IMembershipFields {
-  _id: mongoose.Types.ObjectId;
-  orgId: mongoose.Types.ObjectId;
-  userId: mongoose.Types.ObjectId;
-  role: 'admin' | 'member';
-  joinedAt: Date;
-}
-
-/**
- * Public payload format describing structural tenant context details
+ * Public representation of an organization returned by the SDK.
  */
 export interface OpenAuthOrgResponse {
-  id: string | mongoose.Types.ObjectId;
+  /**
+   * Unique organization identifier.
+   */
+  id: string;
+
+  /**
+   * Organization name.
+   */
   name: string;
-  role?: 'admin' | 'member' | null;
+
+  /**
+   * Current user's role inside the organization.
+   */
+  role?: "admin" | "member";
 }

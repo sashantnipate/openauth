@@ -1,26 +1,21 @@
-import mongoose from 'mongoose';
+export interface User {
 
-/**
- * Structural mirror of basic database document schema values for Users
- */
-export interface IUserFields {
-  _id: mongoose.Types.ObjectId;
+  id: string;
   email: string;
   name: string;
   passwordHash?: string;
   providers: {
-    githubId?: string;
-    googleId?: string;
+    github?: string;
+    google?: string;
   };
   canCreateOrganizations: boolean;
   createdAt: Date;
 }
 
-/**
- * Public payload format used for downstream presentation data layers safely stripped of passwords
- */
+
 export interface OpenAuthUserResponse {
-  id: string | mongoose.Types.ObjectId;
+
+  id: string;
   email: string;
   name: string;
 }

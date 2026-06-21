@@ -1,87 +1,55 @@
 import {
-  OpenAuthAdapter,
-  OpenAuthContext,
-} from "./adapter";
-
-import { OpenAuthConfig } from "./types/config";
-
-import {
+  AuthenticatedSession,
+  AuthResult,
+  LogoutResult,
+  OpenAuthConfig,
+  SigninInput,
   SignupInput,
-  AuthEngineResult,
-  SessionVerificationResult,
-  LogoutEngineResult,
-} from "./types/auth";
+} from "./types";
+import { OpenAuthAdapter } from "./repository";
 
 import { signupAction } from "./auth/signup";
 import { signinAction } from "./auth/signin";
-import { verifySessionAction } from "./auth/session";
+import { sessionAction } from "./auth/session";
 import { logoutAction } from "./auth/logout";
-import { createOrganizationAction } from "./organizations/create-org";
 
+/**
+ * The main entry point for the OpenAuth SDK.
+ */
 export class OpenAuth {
-  private readonly ctx: OpenAuthContext;
+  /**
+   * Creates a new OpenAuth instance.
+   */
+  constructor(
+    public readonly adapter: OpenAuthAdapter,
+    public readonly config: OpenAuthConfig
+  ) {}
 
-  constructor(options: {
-    adapter: OpenAuthAdapter;
-    config: OpenAuthConfig;
-  }) {
-    const secret = process.env.OPENAUTH_SECRET;
-
-    if (!secret) {
-      throw new Error(
-        [
-          "[OpenAuth]",
-          "OPENAUTH_SECRET is missing.",
-          "Please define OPENAUTH_SECRET in your environment.",
-        ].join(" ")
-      );
-    }
-
-    this.ctx = {
-      adapter: options.adapter,
-      config: options.config,
-      secret,
-    };
+  /**
+   * Registers a new user.
+   */
+  async signup(input: SignupInput): Promise<AuthResult> {
+    return signupAction(this, input);
   }
 
-  // ============================================================================
-  // Authentication
-  // ============================================================================
-
-  async signup(input: SignupInput): Promise<AuthEngineResult> {
-    return signupAction(this.ctx, input);
+  /**
+   * Authenticates an existing user.
+   */
+  async signin(input: SigninInput): Promise<AuthResult> {
+    return signinAction(this, input);
   }
 
-  async signin(
-    input: Parameters<typeof signinAction>[1]
-  ): Promise<AuthEngineResult> {
-    return signinAction(this.ctx, input);
+  /**
+   * Returns the current authenticated session.
+   */
+  async getSession(token: string): Promise<AuthenticatedSession> {
+    return sessionAction(this, token);
   }
 
-  async verifySession(
-    token: string
-  ): Promise<SessionVerificationResult> {
-    return verifySessionAction(this.ctx, token);
-  }
-
-  async logout(
-    token?: string
-  ): Promise<LogoutEngineResult> {
-    return logoutAction(this.ctx, token);
-  }
-
-  // ============================================================================
-  // Organizations
-  // ============================================================================
-
-  async createOrganization(
-    userId: string,
-    organizationName: string
-  ) {
-    return createOrganizationAction(
-      this.ctx,
-      userId,
-      organizationName
-    );
+  /**
+   * Logs out the current session.
+   */
+  async logout(token: string): Promise<LogoutResult> {
+    return logoutAction(this, token);
   }
 }

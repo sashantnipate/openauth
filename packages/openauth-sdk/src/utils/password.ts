@@ -1,33 +1,55 @@
-import crypto from 'crypto';
-import { promisify } from 'util';
+import { randomBytes, scrypt as _scrypt, timingSafeEqual } from "crypto";
+import { promisify } from "util";
 
-const scryptAsync = promisify(crypto.scrypt);
+const scrypt = promisify(_scrypt);
+
+const SALT_LENGTH = 16;
+const KEY_LENGTH = 64;
 
 /**
- * Generates a secure scrypt password hash accompanied by a unique 16-byte salt string.
+ * Hashes a plain text password using scrypt.
+ *
+ * The returned value contains both the generated salt and
+ * the derived key in the following format:
+ *
+ * salt:hash
  */
 export async function hashPassword(password: string): Promise<string> {
-  const salt = crypto.randomBytes(16).toString('hex');
-  const derivedKey = (await scryptAsync(password, salt, 64)) as Buffer;
-  return `${salt}:${derivedKey.toString('hex')}`;
+  const salt = randomBytes(SALT_LENGTH).toString("hex");
+
+  const derivedKey = (await scrypt(
+    password,
+    salt,
+    KEY_LENGTH
+  )) as Buffer;
+
+  return `${salt}:${derivedKey.toString("hex")}`;
 }
 
 /**
- * Validates inbound credentials using timingSafeEqual to defeat side-channel attack loops.
+ * Verifies a plain text password against a stored password hash.
  */
-export async function verifyPassword(password: string, storedValue: string): Promise<boolean> {
-  const [salt, originalHash] = storedValue.split(':');
-  if (!salt || !originalHash) {
+export async function verifyPassword(
+  password: string,
+  passwordHash: string
+): Promise<boolean> {
+  const [salt, storedHash] = passwordHash.split(":");
+
+  if (!salt || !storedHash) {
     return false;
   }
-  
-  const currentHashBuffer = (await scryptAsync(password, salt, 64)) as Buffer;
-  const originalHashBuffer = Buffer.from(originalHash, 'hex');
-  
-  // Guard lengths strictly before passing buffers to avoid byte-length boundary mismatched crashes
-  if (currentHashBuffer.length !== originalHashBuffer.length) {
+
+  const derivedKey = (await scrypt(
+    password,
+    salt,
+    KEY_LENGTH
+  )) as Buffer;
+
+  const storedBuffer = Buffer.from(storedHash, "hex");
+
+  if (storedBuffer.length !== derivedKey.length) {
     return false;
   }
-  
-  return crypto.timingSafeEqual(currentHashBuffer, originalHashBuffer);
+
+  return timingSafeEqual(storedBuffer, derivedKey);
 }

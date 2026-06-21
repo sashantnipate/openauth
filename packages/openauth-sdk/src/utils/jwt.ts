@@ -1,22 +1,47 @@
-import jwt from 'jsonwebtoken';
+import jwt, { JwtPayload } from "jsonwebtoken";
 
 /**
- * Generates an encrypted authorization session string mapped against a target configuration duration.
+ * Generates a signed JWT.
  */
-export function generateSessionToken(payload: { userId: string }, secret: string, duration: string): string {
+export function generateToken(
+  payload: Record<string, unknown>,
+  secret: string,
+  expiresIn: jwt.SignOptions["expiresIn"]
+): string {
   return jwt.sign(payload, secret, {
-    expiresIn: duration as any,
+    algorithm: "HS256",
+    expiresIn,
   });
 }
 
 /**
- * Decodes cryptographic context payloads safely without throwing unhandled exceptions up the stack.
+ * Verifies and decodes a JWT.
  */
-export function decodeSessionToken(token: string, secret: string): { userId: string } | null {
+export function verifyToken<T extends JwtPayload = JwtPayload>(
+  token: string,
+  secret: string
+): T | null {
   try {
-    return jwt.verify(token, secret) as { userId: string };
-  } catch (error) {
-    // Gracefully catch standard token expirations and signature tampering errors
+    return jwt.verify(token, secret) as T;
+  } catch {
     return null;
   }
+}
+
+/**
+ * Decodes a JWT without verifying its signature.
+ *
+ * This should only be used when the payload is needed
+ * without validating the token.
+ */
+export function decodeToken<T extends JwtPayload = JwtPayload>(
+  token: string
+): T | null {
+  const decoded = jwt.decode(token);
+
+  if (!decoded || typeof decoded === "string") {
+    return null;
+  }
+
+  return decoded as T;
 }

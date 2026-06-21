@@ -1,19 +1,20 @@
-import { OpenAuthUserResponse } from './user';
-import { OpenAuthOrgResponse } from './organization';
+import { OpenAuthUserResponse } from "./user";
+import { OpenAuthOrgResponse } from "./organization";
 
 /**
- * Inbound structural parameters expected during new profile creation attempts
+ * Data required to register a new user account.
  */
 export interface SignupInput {
   email: string;
   name: string;
   password?: string;
+
   githubId?: string;
   googleId?: string;
 }
 
 /**
- * Inbound structural parameters expected during profile verification loops
+ * Data required to authenticate an existing user.
  */
 export interface SigninInput {
   email: string;
@@ -21,18 +22,22 @@ export interface SigninInput {
 }
 
 /**
- * Central transaction output returned from successful registration or credential verification hooks
+ * Result returned after a successful authentication.
+ *
+ * This contract is shared across every authentication flow,
+ * including email/password, OAuth, magic links, and future
+ * authentication methods.
  */
-export interface AuthEngineResult {
+export interface AuthResult {
   user: OpenAuthUserResponse;
   token: string;
   organization: OpenAuthOrgResponse | null;
 }
 
 /**
- * State container data signature evaluated during active browser session inspection tasks
+ * Represents the current authentication state of a session.
  */
-export interface SessionVerificationResult {
+export interface AuthenticatedSession {
   authenticated: boolean;
   user: OpenAuthUserResponse | null;
   organization: OpenAuthOrgResponse | null;
@@ -40,9 +45,9 @@ export interface SessionVerificationResult {
 }
 
 /**
- * Formal contract detailing standardized server responses generated when processing user logouts
+ * Result returned after a logout operation.
  */
-export interface LogoutEngineResult {
+export interface LogoutResult {
   success: boolean;
   message: string;
 }
