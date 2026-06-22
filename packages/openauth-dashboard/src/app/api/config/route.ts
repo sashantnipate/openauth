@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
+import { AuthConfigModel } from "@openauth/mongodb-adapter/src/models/Config.model";
 import mongoose from "mongoose";
 
-// A quick helper to guarantee that Mongoose is fully connected before query calls
 async function ensureDbConnected() {
-  if (mongoose.connection.readyState !== 1) {
+  const state = mongoose.connection.readyState;
+  if (state !== 1 && state !== 2) {
     if (!process.env.MONGODB_URI) {
       throw new Error("MONGODB_URI is missing from your environment setup profile.");
     }
@@ -11,31 +12,11 @@ async function ensureDbConnected() {
   }
 }
 
-// Simple schema to track persistent configurations dynamically in MongoDB
-const ConfigSchema = new mongoose.Schema({
-  settings: {
-    allowUserSignups: { type: Boolean, default: true },
-    organizations: {
-      enabled: { type: Boolean, default: false },
-      allowUserCreate: { type: Boolean, default: false },
-      autoCreateOnSignup: { type: Boolean, default: false },
-      defaultMaxMembers: { type: Number, default: 5 }
-    },
-    sessionDuration: { type: String, default: "7d" }
-  },
-  providers: {
-    github: { enabled: { type: Boolean, default: false } },
-    google: { enabled: { type: Boolean, default: false } }
-  }
-}, { timestamps: true, collection: "auth_configs" });
-
-const AuthConfigModel = mongoose.models.AuthConfig || mongoose.model("AuthConfig", ConfigSchema);
-
-// 1. GET: Pulls live data records straight out of MongoDB collections
+// 1. GET: Pulls live data records straight out of model abstraction layer safely
 export async function GET() {
   try {
     await ensureDbConnected();
-    let config = await AuthConfigModel.findOne();
+    let config = await AuthConfigModel.findOne().lean();
     if (!config) {
       config = await AuthConfigModel.create({});
     }
@@ -53,23 +34,42 @@ export async function GET() {
   }
 }
 
-// 2. POST: Saves state updates whenever the developer toggles any frontend button
+// 2. POST: Securely patches granular fields using target database object merging paths ($set)
 export async function POST(req: Request) {
   try {
     await ensureDbConnected();
     const body = await req.json();
 
-    let config = await AuthConfigModel.findOne();
-    if (!config) {
-      config = new AuthConfigModel();
+    const updatePayload: any = {};
+    
+    // Construct safe atomic deep patch path pointers instead of dropping whole sub-objects over old values
+    if (body.settings) {
+      for (const key of Object.keys(body.settings)) {
+        if (typeof body.settings[key] === 'object' && body.settings[key] !== null) {
+          for (const subKey of Object.keys(body.settings[key])) {
+            updatePayload[`settings.${key}.${subKey}`] = body.settings[key][subKey];
+          }
+        } else {
+          updatePayload[`settings.${key}`] = body.settings[key];
+        }
+      }
     }
 
-    if (body.settings) config.settings = body.settings;
-    if (body.providers) config.providers = body.providers;
+    if (body.providers) {
+      for (const provider of Object.keys(body.providers)) {
+        updatePayload[`providers.${provider}.enabled`] = !!body.providers[provider].enabled;
+      }
+    }
 
-    await config.save();
+    // Atomic upsert operation: creates document with default settings if missing, otherwise targets changes cleanly
+    await AuthConfigModel.updateOne(
+      {},
+      { $set: updatePayload },
+      { upsert: true }
+    );
+
     return NextResponse.json({ success: true });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || "Failed to update configuration matrix." }, { status: 400 });
   }
-}
+} 

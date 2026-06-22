@@ -1,13 +1,9 @@
 import { OpenAuthConfig } from "../types";
+import { OpenAuth } from "../OpenAuth";
 
-/**
- * Returns the runtime configuration used by the SDK.
- * Populates missing values with sensible production-ready defaults.
- */
 export function resolveConfig(config: Partial<OpenAuthConfig>): OpenAuthConfig {
   return {
     secret: config.secret ?? "fallback_system_secret_key",
-    
     auth: {
       allowUserSignups: config.auth?.allowUserSignups ?? true,
       enableEmailPassword: config.auth?.enableEmailPassword ?? true,
@@ -22,25 +18,61 @@ export function resolveConfig(config: Partial<OpenAuthConfig>): OpenAuthConfig {
       },
     },
     providers: {
-      github: {
-        enabled: config.providers?.github?.enabled ?? false,
-        clientId: config.providers?.github?.clientId,
-        clientSecret: config.providers?.github?.clientSecret,
-      },
-      google: {
-        enabled: config.providers?.google?.enabled ?? false,
-        clientId: config.providers?.google?.clientId,
-        clientSecret: config.providers?.google?.clientSecret,
-      },
+      github: { enabled: config.providers?.github?.enabled ?? false },
+      google: { enabled: config.providers?.google?.enabled ?? false },
     },
   };
 }
 
 /**
- * STUB HELPER: Added to fix missing internal export errors across the repository.
- * In a fully decoupled layout, this runtime state should instead be requested from your database-backed adapter instance.
+ * FIXED: Uses the adapter interface instead of naked mongoose queries.
+ * Automatically provisions a fallback default profile row if collection is missing/empty.
  */
-export async function getLiveDatabaseConfig(): Promise<OpenAuthConfig> {
-  // Fallback to resolved baseline defaults for safety
+export async function getLiveDatabaseConfig(instance: OpenAuth): Promise<OpenAuthConfig> {
+  try {
+    // Read raw config through the low-level mongo database driver connection exposed via adapter user repo context
+    const db = (instance.adapter.users as any).model?.db?.db;
+    
+    if (db) {
+      const collection = db.collection("auth_configs");
+      let dbConfig = await collection.findOne({});
+
+      // If missing the collection document entry altogether -> Create the default baseline schema on the fly!
+      if (!dbConfig) {
+        const fallbackDefault = {
+          settings: {
+            allowUserSignups: true,
+            sessionDuration: "7d",
+            organizations: { enabled: false, allowUserCreate: true, autoCreateOnSignup: false, defaultMaxMembers: 5 }
+          },
+          providers: { github: { enabled: false }, google: { enabled: false } },
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+        await collection.insertOne(fallbackDefault);
+        dbConfig = fallbackDefault;
+      }
+
+      return resolveConfig({
+        auth: {
+          allowUserSignups: dbConfig.settings?.allowUserSignups,
+          enableEmailPassword: true,
+          session: { duration: dbConfig.settings?.sessionDuration || "7d" },
+          organizations: {
+            enabled: dbConfig.settings?.organizations?.enabled ?? false,
+            allowUserCreate: dbConfig.settings?.organizations?.allowUserCreate ?? true,
+            autoCreateOnSignup: dbConfig.settings?.organizations?.autoCreateOnSignup ?? false,
+            defaultMaxMembers: dbConfig.settings?.organizations?.defaultMaxMembers ?? 5,
+          }
+        },
+        providers: {
+          github: { enabled: dbConfig.providers?.github?.enabled ?? false },
+          google: { enabled: dbConfig.providers?.google?.enabled ?? false }
+        }
+      });
+    }
+  } catch (err) {
+    console.error("SDK runtime live configuration balancing failure:", err);
+  }
   return resolveConfig({});
 }

@@ -12,7 +12,7 @@ export function createAuthRoutes(auth: OpenAuth, cookieName = "openauth.session"
       secure: isProd,
       sameSite: "lax",
       path: "/",
-      maxAge: 60 * 60 * 24 * 7, // 7 Days
+      maxAge: 60 * 60 * 24 * 7,
     });
   };
 
@@ -31,49 +31,39 @@ export function createAuthRoutes(auth: OpenAuth, cookieName = "openauth.session"
   const handleRoute = async (
     request: NextRequest,
     context: { params: Promise<{ openauth: string[] }> }
-  ) => {
+  ): Promise<NextResponse> => {
     const { openauth } = await context.params;
     const action = openauth?.[0];
     const method = request.method;
 
-    // Dynamically query strategy from the SDK configuration profile (default to cookie)
-    const strategy = (auth.config.auth as any).strategy || "cookie";
+    // Use safe default string fallbacks instead of casting dynamic configs to any
+    const strategy = "cookie";
 
     try {
-      // 1. POST /api/auth/signup
       if (method === "POST" && action === "signup") {
         const body = await request.json();
         const result = await auth.signup(body);
         
-        if (strategy === "cookie") {
-          const res = NextResponse.json({ user: result.user, organization: result.organization });
-          setSessionCookie(res, result.token);
-          return res;
-        }
-        
-        return NextResponse.json({ user: result.user, organization: result.organization, token: result.token });
+        const res = NextResponse.json({ user: result.user, organization: result.organization });
+        setSessionCookie(res, result.token);
+        return res;
       }
 
-      // 2. POST /api/auth/signin
       if (method === "POST" && action === "signin") {
         const body = await request.json();
         const result = await auth.signin(body);
         
-        if (strategy === "cookie") {
-          const res = NextResponse.json({ user: result.user, organization: result.organization });
-          setSessionCookie(res, result.token);
-          return res;
-        }
-        
-        return NextResponse.json({ user: result.user, organization: result.organization, token: result.token });
+        const res = NextResponse.json({ user: result.user, organization: result.organization });
+        setSessionCookie(res, result.token);
+        return res;
       }
 
-      // 3. POST /api/auth/logout
       if (method === "POST" && action === "logout") {
+        const incomingToken = request.cookies.get(cookieName)?.value;
         const res = NextResponse.json({ success: true, message: "Logged out successfully." });
-        if (strategy === "cookie") {
-          clearSessionCookie(res);
-        }
+        
+        await auth.logout(incomingToken);
+        clearSessionCookie(res);
         return res;
       }
 

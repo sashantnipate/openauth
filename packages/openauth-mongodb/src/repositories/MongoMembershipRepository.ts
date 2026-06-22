@@ -3,12 +3,12 @@ import { MembershipModel } from "../models/Membership.model";
 import { Types } from "mongoose";
 
 export class MongoMembershipRepository implements OrganizationMembershipRepository {
-  private mapDocument(doc: any): OrganizationMembership {
+  private mapDocument(doc: Record<string, any>): OrganizationMembership {
     return {
       id: doc._id.toString(),
       organizationId: doc.organizationId.toString(),
       userId: doc.userId.toString(),
-      role: doc.role,
+      role: doc.role as "admin" | "member",
       joinedAt: doc.joinedAt,
     };
   }
@@ -25,7 +25,7 @@ export class MongoMembershipRepository implements OrganizationMembershipReposito
 
   async findById(id: string): Promise<OrganizationMembership | null> {
     if (!Types.ObjectId.isValid(id)) return null;
-    const doc = await MembershipModel.findById(id).lean();
+    const doc = await MembershipModel.findById(id).lean().exec();
     return doc ? this.mapDocument(doc) : null;
   }
 
@@ -34,19 +34,19 @@ export class MongoMembershipRepository implements OrganizationMembershipReposito
     const doc = await MembershipModel.findOne({
       organizationId: new Types.ObjectId(organizationId),
       userId: new Types.ObjectId(userId),
-    }).lean();
+    }).lean().exec();
     return doc ? this.mapDocument(doc) : null;
   }
 
   async findByOrganizationId(organizationId: string): Promise<OrganizationMembership[]> {
     if (!Types.ObjectId.isValid(organizationId)) return [];
-    const docs = await MembershipModel.find({ organizationId: new Types.ObjectId(organizationId) }).lean();
+    const docs = await MembershipModel.find({ organizationId: new Types.ObjectId(organizationId) }).lean().exec();
     return docs.map(this.mapDocument);
   }
 
   async findByUserId(userId: string): Promise<OrganizationMembership[]> {
     if (!Types.ObjectId.isValid(userId)) return [];
-    const docs = await MembershipModel.find({ userId: new Types.ObjectId(userId) }).lean();
+    const docs = await MembershipModel.find({ userId: new Types.ObjectId(userId) }).lean().exec();
     return docs.map(this.mapDocument);
   }
 
@@ -55,19 +55,19 @@ export class MongoMembershipRepository implements OrganizationMembershipReposito
       id,
       { $set: data },
       { new: true }
-    ).lean();
+    ).lean().exec();
     if (!doc) throw new Error("Membership block registration not found.");
     return this.mapDocument(doc);
   }
 
   async delete(id: string): Promise<void> {
-    await MembershipModel.findByIdAndDelete(id);
+    await MembershipModel.findByIdAndDelete(id).exec();
   }
 
   async deleteByOrganizationAndUser(organizationId: string, userId: string): Promise<void> {
     await MembershipModel.deleteOne({
       organizationId: new Types.ObjectId(organizationId),
       userId: new Types.ObjectId(userId),
-    });
+    }).exec();
   }
 }
