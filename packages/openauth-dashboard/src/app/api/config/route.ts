@@ -1,91 +1,75 @@
-import { NextResponse } from 'next/server';
-import mongoose from 'mongoose';
+import { NextResponse } from "next/server";
+import mongoose from "mongoose";
 
-// Inline schema definition - KEEP GLOBAL SCOPE CLEAN OF INSTANT CONNECTION EXECUTIONS
-const AuthSettingsSchema = new mongoose.Schema({
+// A quick helper to guarantee that Mongoose is fully connected before query calls
+async function ensureDbConnected() {
+  if (mongoose.connection.readyState !== 1) {
+    if (!process.env.MONGODB_URI) {
+      throw new Error("MONGODB_URI is missing from your environment setup profile.");
+    }
+    await mongoose.connect(process.env.MONGODB_URI);
+  }
+}
+
+// Simple schema to track persistent configurations dynamically in MongoDB
+const ConfigSchema = new mongoose.Schema({
   settings: {
-    sessionDuration: { type: String, default: '1d' },
+    allowUserSignups: { type: Boolean, default: true },
     organizations: {
       enabled: { type: Boolean, default: false },
       allowUserCreate: { type: Boolean, default: false },
       autoCreateOnSignup: { type: Boolean, default: false },
       defaultMaxMembers: { type: Number, default: 5 }
     },
-    allowUserSignups: { type: Boolean, default: true }
+    sessionDuration: { type: String, default: "7d" }
   },
   providers: {
     github: { enabled: { type: Boolean, default: false } },
     google: { enabled: { type: Boolean, default: false } }
   }
-});
+}, { timestamps: true, collection: "auth_configs" });
 
-const AuthSettingsModel = mongoose.models.AuthSettings || mongoose.model('AuthSettings', AuthSettingsSchema);
+const AuthConfigModel = mongoose.models.AuthConfig || mongoose.model("AuthConfig", ConfigSchema);
 
-const DEFAULT_CONFIG = {
-  settings: {
-    sessionDuration: "1d",
-    organizations: { enabled: false, allowUserCreate: false, autoCreateOnSignup: false, defaultMaxMembers: 5 },
-    allowUserSignups: true
-  },
-  providers: { github: { enabled: false }, google: { enabled: false } }
-};
-
+// 1. GET: Pulls live data records straight out of MongoDB collections
 export async function GET() {
   try {
-    // 1. Guard check before doing anything else
-    if (!process.env.MONGODB_URI) {
-      return NextResponse.json({ 
-        error: 'MONGODB_URI environment variable is missing or unreadable by the dashboard process.' 
-      }, { status: 500 });
-    }
-
-    // 2. LAZY CONNECTION: Connect only when the route handler is invoked!
-    if (mongoose.connection.readyState === 0) {
-      await mongoose.connect(process.env.MONGODB_URI);
-    }
-
-    let config = await AuthSettingsModel.findOne().lean();
+    await ensureDbConnected();
+    let config = await AuthConfigModel.findOne();
     if (!config) {
-      config = await AuthSettingsModel.create(DEFAULT_CONFIG);
+      config = await AuthConfigModel.create({});
     }
 
-    const responsePayload = {
-      ...config,
+    return NextResponse.json({
+      settings: config.settings,
+      providers: config.providers,
       envStatus: {
-        githubKeysPresent: !!(process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET),
-        googleKeysPresent: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET)
+        githubKeysPresent: !!(process.env.GITHUB_CLIENT_ID || process.env.GITHUB_ID),
+        googleKeysPresent: !!(process.env.GOOGLE_CLIENT_ID || process.env.GOOGLE_ID)
       }
-    };
-
-    return NextResponse.json(responsePayload);
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message || 'Failed to sync with database server.' }, { status: 500 });
+    });
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message || "Failed to contact database." }, { status: 500 });
   }
 }
 
-export async function POST(request: Request) {
+// 2. POST: Saves state updates whenever the developer toggles any frontend button
+export async function POST(req: Request) {
   try {
-    if (!process.env.MONGODB_URI) {
-      return NextResponse.json({ error: 'MONGODB_URI is missing.' }, { status: 500 });
+    await ensureDbConnected();
+    const body = await req.json();
+
+    let config = await AuthConfigModel.findOne();
+    if (!config) {
+      config = new AuthConfigModel();
     }
 
-    if (mongoose.connection.readyState === 0) {
-      await mongoose.connect(process.env.MONGODB_URI);
-    }
+    if (body.settings) config.settings = body.settings;
+    if (body.providers) config.providers = body.providers;
 
-    const updatedConfig = await request.json();
-    
-    const cleanUpdatePayload = {
-      settings: updatedConfig.settings,
-      providers: {
-        github: { enabled: !!updatedConfig.providers?.github?.enabled },
-        google: { enabled: !!updatedConfig.providers?.google?.enabled }
-      }
-    };
-
-    const doc = await AuthSettingsModel.findOneAndUpdate({}, cleanUpdatePayload, { new: true, upsert: true });
-    return NextResponse.json({ success: true, updatedConfig: doc });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message || 'Database write operational failure.' }, { status: 500 });
+    await config.save();
+    return NextResponse.json({ success: true });
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message || "Failed to update configuration matrix." }, { status: 400 });
   }
 }

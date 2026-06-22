@@ -9,15 +9,12 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
   "private": true,
   "workspaces": [
-    "packages/openauth-sdk",
-    "packages/openauth-dashboard",
-    "packages/openauth-mongodb",
-    "apps"
+    "packages/*",
+    "apps/*"
   ],
   "devDependencies": {
-    "@types/node": "^25.9.1"
+    "@types/node": "^22.0.0"
   }
 }

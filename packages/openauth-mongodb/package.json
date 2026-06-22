@@ -2,10 +2,12 @@
   "name": "@openauth/mongodb-adapter",
   "version": "1.0.0",
   "main": "./src/index.ts",
+  "types": "./src/index.ts",
   "dependencies": {
-    "mongoose": "9.7.0"
+    "mongoose": "9.7.0",
+    "@openauth/sdk": "*"
   },
-  "peerDependencies": {
-    "@openauth/sdk": "^1.0.0"
+  " ": {
+    "mongoose": "^9.0.0"
   }
 }

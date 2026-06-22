@@ -1,3 +1,2 @@
-export { createOpenAuthHandler } from "./create-handler";
-export { createGetSession } from "./server/get-session";
-export { createRequireAuth } from "./server/require-auth";
+export { createAuthRoutes } from "./router/create-auth-routes";
+export { createServerContext, type AuthContext } from "./server/context";

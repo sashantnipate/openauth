@@ -6,6 +6,8 @@ import { OpenAuthConfig } from "../types";
  */
 export function resolveConfig(config: Partial<OpenAuthConfig>): OpenAuthConfig {
   return {
+    secret: config.secret ?? "fallback_system_secret_key",
+    
     auth: {
       allowUserSignups: config.auth?.allowUserSignups ?? true,
       enableEmailPassword: config.auth?.enableEmailPassword ?? true,

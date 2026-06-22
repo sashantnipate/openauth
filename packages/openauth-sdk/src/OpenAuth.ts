@@ -5,6 +5,8 @@ import { signinAction } from "./auth/signin";
 import { handleGitHubCallbackAction } from "./oauth/github";
 import { handleGoogleCallbackAction } from "./oauth/google";
 import { createOrganizationAction } from "./organizations/create-org";
+import { logoutAction } from "./auth/logout";
+import { verifySessionAction } from "./auth/session";
 
 export class OpenAuth {
   constructor(
@@ -33,4 +35,11 @@ export class OpenAuth {
     return createOrganizationAction(this, userId, name);
   }
 
+  async logout(token?: string) {
+    return logoutAction(this, token);
+  }
+
+  async verifySession(token: string) {
+    return verifySessionAction(this, token);
+  }
 }
